@@ -3,11 +3,9 @@ import fitz
 import pandas as pd
 from io import BytesIO
 
-from collections import Counter
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from nltk.stem import WordNetLemmatizer
-import string
+from nltk.corpus import wordnet
+
+import spacy
 
 import re
 
@@ -37,53 +35,41 @@ def extract_pdf_text(arxiv_id):
         return f"Error downloading PDF: {e}"
     except Exception as e:
         return f"Error extracting text: {e}"
-    
-#tokenization and text cleaning
-def preprocess(text):
-    lemmatizer = WordNetLemmatizer()
-    stop_words = set(stopwords.words('english'))
 
-    # Lowercase and remove URLs/special characters
-    text = text.lower()
-    text = re.sub(r'https?://\S+|www\.\S+', '', text)
-    #text = re.sub(r'[^a-zA-Z\s]', '', text).strip()
-    
-    #Removing Extra Spaces
-    text = re.sub(r'\s+', ' ', text).strip()
-    
-    #Joining wordssplit by -
-    text = re.sub(r'(\w+)-\s(\w+)', '\1\2', text)
-    
-    #Remove citations and references
-    text = re.sub(r'\[\d+\]', '', text)  # Removes [12]
-    text = re.sub(r'\(.*?et al\.,\s*\d{4}\)', '', text)  # Removes (Smith et al., 2020)
-    ref = "references"
-    text = text.split(ref)[0].strip() if ref in text else text
-    
-    #Remove content before introduction
-    intro = "introduction"
-    text = text.split(intro)[1].strip() if intro in text else text
-    
-    # Tokenize and lemmatize
-    tokens = word_tokenize(text)
-    tokens = [word for word in tokens if word not in stop_words]
-    
-    return ' '.join(tokens)
+nlp = spacy.load("en_core_web_sm")
 
-# Join sentences while keeping within the 1024-token limit
-def chunk_text(sentences, tokenizer, max_tokens=1024):
-    chunks = []
-    current_chunk = []
+def extract_sections(text):
 
-    for sentence in sentences:
-        tokenized_sentence = tokenizer.tokenize(sentence)
-        if len(tokenized_sentence) + sum(len(tokenizer.tokenize(s)) for s in current_chunk) < max_tokens:
-            current_chunk.append(sentence)
-        else:
-            chunks.append(" ".join(current_chunk))
-            current_chunk = [sentence]
+    keyword_sections = {"ABSTRACT","INTRODUCTION", "METHOD", "EXPERIMENT", "RESULTS", "DISCUSSION", "CONCLUSION", "REFERENCES", "ACKNOWLEDGEMENTS", "BIBLIOGRAPHY"}
 
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
+    numbering_patterns = [
+        r'^\d+(\.\d+)*\.?\s',  # 1, 1.1, 1.2.3
+        r'^(I{1,3}|IV|V{1,3}|VI{1,3})\.\s',  # I. II. III.
+        r'^[A-Z]\.\s'  # A. B. C.
+    ]
 
-    return chunks
+    sections = []
+    lines = text.split('\n')
+
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if line.upper() in keyword_sections:
+            sections.append((i, line))
+
+    #if there is an existing numbering pattern, remove other titles as noise
+    numbering_pattern_count = 0
+    for section in sections:
+        for pattern in numbering_patterns:
+            if re.match(pattern, section[1]):
+                numbering_pattern_count += 1
+    if numbering_pattern_count > 5:
+        for section in sections[:]:
+            matched = False
+
+            for pattern in numbering_patterns:
+                if re.match(pattern, section[1]):
+                    matched = True
+            if not matched:
+                sections.remove(section)
+
+    return sections
