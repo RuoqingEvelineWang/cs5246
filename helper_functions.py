@@ -35,6 +35,18 @@ def extract_pdf_text(arxiv_id):
         return f"Error downloading PDF: {e}"
     except Exception as e:
         return f"Error extracting text: {e}"
+    
+def get_number_of_times_a_paper_is_cited(title):
+    url = f"https://api.openalex.org/works"
+    params = {
+        "search": title,
+        "per-page": 1
+    }
+    response = requests.get(url, params=params)
+    results = response.json()
+    if results['results']:
+        return results['results'][0].get('cited_by_count', 0)
+    return 0
 
 nlp = spacy.load("en_core_web_sm")
 
